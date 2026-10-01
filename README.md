@@ -17,6 +17,19 @@ A local, read-only governance dashboard for comparing Microsoft Fabric tenant se
 
 See `START-HERE.html` for API permissions, direct API tests, response examples, and troubleshooting.
 
+## Disable capacity delegation
+
+Preview a tenant-setting update without sending it:
+
+```powershell
+.\Disable-FabricCapacityDelegation.ps1 `
+    -TenantId "<TENANT-GUID>" `
+    -TenantSettingName "EnableAOAI" `
+    -WhatIf
+```
+
+Remove `-WhatIf` only after reviewing the preserved request body and approving the change.
+
 ## Security
 
 - The server binds only to `127.0.0.1`.

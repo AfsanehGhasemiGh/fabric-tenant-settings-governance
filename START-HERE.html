@@ -1,0 +1,1432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabric Tenant Settings Governance - Client Runbook</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    body { margin:0; background:var(--cp-bg); color:var(--cp-text);
+      font:15px/1.55 "Segoe UI",Aptos,Calibri,-apple-system,BlinkMacSystemFont,sans-serif; }
+    main { max-width:1200px; margin:auto; padding:34px; }
+    h1 { margin-bottom:4px; } h2 { margin-top:34px; border-bottom:1px solid var(--cp-border); padding-bottom:7px; }
+    h3 { margin-top:24px; } .muted { color:var(--cp-text-muted); }
+    .callout { border-left:5px solid var(--cp-accent); background:var(--cp-surface); padding:16px 20px; margin:18px 0; }
+    .note { background:var(--cp-surface-soft); } .warn { background:var(--cp-accent-soft); border-left-color:var(--cp-warning); }
+    code { font-family:Consolas,"Courier New",Courier,monospace; }
+    pre { background:var(--cp-bg-elevated); color:var(--cp-text); border:1px solid var(--cp-border);
+      padding:18px; overflow:auto; border-radius:0.625rem; white-space:pre; }
+    table { width:100%; border-collapse:collapse; margin:16px 0; }
+    th,td { border:1px solid var(--cp-border); padding:10px; text-align:left; vertical-align:top; }
+    th { background:var(--cp-surface-soft); }
+    details { border:1px solid var(--cp-border); border-radius:0.625rem; margin:14px 0; }
+    summary { cursor:pointer; font-weight:700; padding:14px; background:var(--cp-surface); }
+    details pre { margin:0; border-radius:0 0 0.625rem 0.625rem; }
+    .steps li { margin:12px 0; }
+    a { color:var(--cp-link); }
+  </style>
+</head>
+<body><main>
+  <h1>Fabric Tenant Settings Governance</h1>
+  <p class="muted">Client test runbook and complete read-only source code</p>
+
+  <section class="callout">
+    <strong>Purpose:</strong> identify capacity-level tenant-setting overrides, compare them
+    with tenant defaults, map override records to capacity names, and produce HTML and CSV reports.
+  </section>
+
+  <h2>What the report proves</h2>
+  <ul>
+    <li>An override row proves that a capacity has an explicit setting instead of simply inheriting the tenant setting.</li>
+    <li>The report separately identifies effective drift in enabled state, security-group scope, or setting properties.</li>
+    <li>A same-state explicit override is still important: it can become drift later if the tenant default changes.</li>
+    <li>The inventory API does not return the actor or change timestamp. Use Microsoft Purview audit events for that evidence.</li>
+  </ul>
+
+  <h2>APIs used</h2>
+  <table>
+    <thead><tr><th>Purpose</th><th>Method and endpoint</th><th>Mutation</th></tr></thead>
+    <tbody>
+      <tr><td>Tenant settings</td><td><code>GET https://api.fabric.microsoft.com/v1/admin/tenantsettings</code></td><td>None</td></tr>
+      <tr><td>Capacity overrides</td><td><code>GET https://api.fabric.microsoft.com/v1/admin/capacities/delegatedTenantSettingOverrides</code></td><td>None</td></tr>
+      <tr><td>Capacity names and metadata</td><td><code>GET https://api.powerbi.com/v1.0/myorg/admin/capacities</code></td><td>None</td></tr>
+    </tbody>
+  </table>
+
+  <section class="callout warn">
+    <strong>Deliberately not called:</strong>
+    <code>POST https://api.fabric.microsoft.com/v1/admin/tenantsettings/{tenantSettingName}/update</code>
+    and the capacity override update endpoint. Both change configuration and are outside this audit workflow.
+  </section>
+
+  <h2>Permissions and prerequisites</h2>
+  <ul>
+    <li>Run as a Fabric administrator (Fabric Service Administrator).</li>
+    <li>Delegated API scope: <code>Tenant.Read.All</code> or <code>Tenant.ReadWrite.All</code>.
+      Read-only permission is sufficient for the inventory calls.</li>
+    <li>Windows PowerShell 5.1 or PowerShell 7.</li>
+    <li><a href="https://learn.microsoft.com/cli/azure/install-azure-cli-windows">Azure CLI</a>.</li>
+    <li>Python 3 available as <code>python</code>.</li>
+  </ul>
+
+  <h2>Authentication model</h2>
+  <p>The application uses delegated user authentication through Azure CLI. The client enters only
+  the Microsoft Entra tenant GUID. The application never asks for a password, client secret, or
+  access token. Azure CLI obtains separate tokens for the two required audiences:</p>
+  <table>
+    <thead><tr><th>API</th><th>Token audience/resource</th><th>Required role</th></tr></thead>
+    <tbody>
+      <tr><td>Fabric Admin REST API</td><td><code>https://api.fabric.microsoft.com</code></td><td>Fabric administrator</td></tr>
+      <tr><td>Power BI Admin REST API</td><td><code>https://analysis.windows.net/powerbi/api</code></td><td>Fabric/Power BI administrator</td></tr>
+    </tbody>
+  </table>
+  <section class="callout warn">
+    Activating an administrator role through Microsoft Entra Privileged Identity Management may be
+    required before signing in. If the role was just activated, sign out and sign in again so that
+    new tokens contain the current authorization.
+  </section>
+
+  <h2>Run the localhost report end to end</h2>
+  <ol class="steps">
+    <li>Extract the package to a local folder.</li>
+    <li>Open PowerShell in that folder.</li>
+    <li>Start the local application:
+      <pre><code>python .\fabric_tenant_settings_server.py</code></pre>
+    </li>
+    <li>Open <a href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>.</li>
+    <li>Enter the Microsoft Entra tenant GUID at the top of the dashboard.</li>
+    <li>Select <strong>Sign in &amp; load</strong>. Azure CLI opens Microsoft sign-in and
+      requests Fabric and Power BI tokens for that tenant. If already authenticated, select
+      <strong>Load using current sign-in</strong>.</li>
+    <li>Optional command-line authentication:
+      <pre><code>az login --tenant &lt;CLIENT-TENANT-ID&gt; --allow-no-subscriptions</code></pre>
+    </li>
+    <li>Optional account confirmation:
+      <pre><code>az account show --query "{user:user.name, tenantId:tenantId}" --output table</code></pre>
+    </li>
+    <li>Use <strong>Export CSV</strong> or <strong>Export JSON</strong> in the dashboard.
+      Stop the server with <code>Ctrl+C</code>.</li>
+  </ol>
+
+  <h2>Test the Microsoft APIs directly</h2>
+  <p>Use these tests when the localhost application cannot retrieve data. They isolate authentication,
+  authorization, and API availability before the report code is involved.</p>
+
+  <h3>1. Confirm Azure CLI is installed</h3>
+  <pre><code>az version</code></pre>
+  <p>If the command is not found, install Azure CLI and open a new PowerShell window.</p>
+
+  <h3>2. Sign into the exact tenant</h3>
+  <pre><code>$tenantId = "&lt;CLIENT-TENANT-GUID&gt;"
+az login --tenant $tenantId --allow-no-subscriptions</code></pre>
+
+  <h3>3. Confirm the identity and tenant</h3>
+  <pre><code>az account show --query "{account:user.name, tenantId:tenantId}" --output table</code></pre>
+  <p>The returned <code>tenantId</code> must exactly match the client tenant GUID.</p>
+
+  <h3>4. Confirm a Fabric token can be issued</h3>
+  <pre><code>az account get-access-token `
+  --tenant $tenantId `
+  --resource https://api.fabric.microsoft.com `
+  --query "{tenant:tenant, expiresOn:expiresOn}" `
+  --output table</code></pre>
+
+  <h3>5. Retrieve tenant settings</h3>
+  <pre><code>az rest `
+  --method get `
+  --resource https://api.fabric.microsoft.com `
+  --url "https://api.fabric.microsoft.com/v1/admin/tenantsettings" `
+  --output json</code></pre>
+  <p>Expected: HTTP 200 with a JSON <code>value</code> array containing tenant settings.</p>
+
+  <h3>6. Retrieve capacity override records</h3>
+  <pre><code>az rest `
+  --method get `
+  --resource https://api.fabric.microsoft.com `
+  --url "https://api.fabric.microsoft.com/v1/admin/capacities/delegatedTenantSettingOverrides" `
+  --output json</code></pre>
+  <p>Expected: HTTP 200. An empty <code>value</code> array is valid and means no current
+  capacity-level overrides were returned.</p>
+
+  <h3>7. Retrieve the tenant capacity inventory</h3>
+  <pre><code>az rest `
+  --method get `
+  --resource https://analysis.windows.net/powerbi/api `
+  --url "https://api.powerbi.com/v1.0/myorg/admin/capacities" `
+  --output json</code></pre>
+  <p>This call supplies capacity names, regions, SKUs, and states for the override report.</p>
+
+  <h3>8. Save raw API responses for support</h3>
+  <pre><code>New-Item -ItemType Directory -Force .\api-test | Out-Null
+
+az rest --method get `
+  --resource https://api.fabric.microsoft.com `
+  --url "https://api.fabric.microsoft.com/v1/admin/tenantsettings" `
+  --output json | Set-Content .\api-test\tenant-settings.json
+
+az rest --method get `
+  --resource https://api.fabric.microsoft.com `
+  --url "https://api.fabric.microsoft.com/v1/admin/capacities/delegatedTenantSettingOverrides" `
+  --output json | Set-Content .\api-test\capacity-overrides.json
+
+az rest --method get `
+  --resource https://analysis.windows.net/powerbi/api `
+  --url "https://api.powerbi.com/v1.0/myorg/admin/capacities" `
+  --output json | Set-Content .\api-test\capacities.json</code></pre>
+
+  <h3>Command-line HTML export alternative</h3>
+  <pre><code>powershell -ExecutionPolicy Bypass -File .\collect_fabric_tenant_settings_report.ps1</code></pre>
+
+  <h3>Local API endpoints for Power BI</h3>
+  <table>
+    <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /api/summary</code></td><td>Report counts and refresh status.</td></tr>
+      <tr><td><code>GET /api/capacities</code></td><td>Capacity name, ID, region, SKU, and state.</td></tr>
+      <tr><td><code>GET /api/overrides</code></td><td>Normalized tenant-versus-capacity comparison rows.</td></tr>
+      <tr><td><code>GET /api/settings</code></td><td>Tenant-setting inventory.</td></tr>
+      <tr><td><code>GET /api/export.csv</code></td><td>Detailed CSV export.</td></tr>
+      <tr><td><code>GET /api/export.json</code></td><td>Summary and normalized override export.</td></tr>
+      <tr><td><code>POST /api/refresh</code></td><td>Read-only refresh from Microsoft APIs.</td></tr>
+      <tr><td><code>GET /health</code></td><td>Local service health.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Test the localhost API</h2>
+  <p>Start the server first, then use a second PowerShell window.</p>
+  <pre><code>$baseUrl = "http://127.0.0.1:8000"
+
+Invoke-RestMethod "$baseUrl/health"
+Invoke-RestMethod "$baseUrl/api/summary" | ConvertTo-Json
+Invoke-RestMethod "$baseUrl/api/capacities" | ConvertTo-Json -Depth 10
+Invoke-RestMethod "$baseUrl/api/overrides" | ConvertTo-Json -Depth 10</code></pre>
+
+  <h3>Load a tenant using the current Azure CLI session</h3>
+  <pre><code>$body = @{
+  tenantId = "&lt;CLIENT-TENANT-GUID&gt;"
+  interactive = $false
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8000/api/connect" `
+  -ContentType "application/json" `
+  -Body $body</code></pre>
+
+  <h3>Expected summary response</h3>
+  <pre><code>{
+  "status": "ready",
+  "tenantId": "&lt;CLIENT-TENANT-GUID&gt;",
+  "accountName": "&lt;SIGNED-IN-ACCOUNT&gt;",
+  "tenantSettings": 176,
+  "capacities": 5,
+  "capacitiesWithOverrides": 1,
+  "overrideRecords": 6,
+  "enabledStateDrift": 1,
+  "securityScopeDrift": 0,
+  "propertyDrift": 0
+}</code></pre>
+
+  <h2>Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>az</code> is not recognized</td><td>Azure CLI is not installed or the terminal predates installation.</td><td>Install Azure CLI and open a new PowerShell window.</td></tr>
+      <tr><td>Browser says connection refused</td><td>The local Python server is not running.</td><td>Run <code>python .\fabric_tenant_settings_server.py</code> and keep that terminal open.</td></tr>
+      <tr><td>Port 8000 is already in use</td><td>Another application is using the default port.</td><td>Run <code>python .\fabric_tenant_settings_server.py --port 8001</code> and open <code>http://127.0.0.1:8001</code>.</td></tr>
+      <tr><td>Tenant ID validation error</td><td>A tenant domain or subscription ID was entered instead of the tenant GUID.</td><td>Use the Microsoft Entra tenant ID in GUID format.</td></tr>
+      <tr><td><code>Forbidden</code> or HTTP 403</td><td>The user is not a Fabric administrator, PIM is inactive, or the token predates role activation.</td><td>Activate the Fabric administrator role, then run <code>az logout</code> and sign in again.</td></tr>
+      <tr><td><code>AADSTS</code> authentication error</td><td>Conditional Access, MFA, tenant restriction, or consent policy blocked authentication.</td><td>Copy the full AADSTS code and request review from the client's identity administrator.</td></tr>
+      <tr><td>Tenant settings work but capacities fail</td><td>The Power BI token audience or administrator permission is unavailable.</td><td>Run the direct Power BI capacity test above using the exact Power BI resource URI.</td></tr>
+      <tr><td>Overrides array is empty</td><td>No capacity settings are explicitly overridden.</td><td>This is a valid compliant result, not an API failure.</td></tr>
+      <tr><td>Override exists but shows “matches tenant”</td><td>The capacity has an explicit value equal to the current tenant value.</td><td>Retain it as governance evidence; it can become drift when the tenant value changes.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Minimum support evidence</h2>
+  <p>If the client still cannot call the APIs, collect the following without sharing access tokens:</p>
+  <ul>
+    <li>Azure CLI version.</li>
+    <li>Tenant GUID and signed-in account name.</li>
+    <li>Whether the Fabric administrator role is permanent or PIM-activated.</li>
+    <li>The failing endpoint and HTTP status.</li>
+    <li>The Fabric <code>requestId</code>, error code, and message.</li>
+    <li>The complete <code>AADSTS</code> code if authentication failed.</li>
+  </ul>
+
+  <h2>Output files</h2>
+  <table>
+    <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>fabric-capacity-tenant-setting-overrides.html</code></td><td>Human-readable governance report.</td></tr>
+      <tr><td><code>fabric-capacity-tenant-setting-overrides.csv</code></td><td>Detailed rows for Excel, Power BI, or archival.</td></tr>
+      <tr><td><code>tenant-settings.json</code></td><td>Raw tenant-setting snapshot.</td></tr>
+      <tr><td><code>capacity-overrides.json</code></td><td>Raw capacity override snapshot.</td></tr>
+      <tr><td><code>admin-capacities.json</code></td><td>Raw capacity inventory used for names, region, SKU, and state.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>How to interpret the result</h2>
+  <table>
+    <thead><tr><th>Report result</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Override records = 0</td><td>No capacity-level tenant-setting overrides were returned for the tenant.</td></tr>
+      <tr><td>Override exists, enabled state is Same</td><td>The capacity has an explicit override, but its enabled state currently matches the tenant.</td></tr>
+      <tr><td>Enabled drift = Different</td><td>The capacity is enabled while the tenant is disabled, or vice versa.</td></tr>
+      <tr><td>Security scope = Different</td><td>Enabled/excluded Microsoft Entra groups differ from the tenant setting.</td></tr>
+      <tr><td>Properties = Different</td><td>One or more typed setting properties differ.</td></tr>
+      <tr><td>Workspace delegation is Enabled</td><td>The capacity setting can be delegated further to workspace administrators.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Actor and timestamp audit</h2>
+  <p>Configuration inventory and audit history answer different questions. The REST report answers
+  “what is overridden now?” For “who changed it and when?”, search Microsoft Purview audit for:</p>
+  <ul>
+    <li><code>UpdatedAdminFeatureSwitch</code></li>
+    <li><code>UpdateCapacityTenantSettingDelegation</code></li>
+    <li><code>UpdateDomainTenantSettingDelegation</code></li>
+    <li><code>UpdateWorkspaceTenantSettingDelegation</code></li>
+  </ul>
+
+  <h2>Sample report</h2>
+  <p>No sample report is included.</p>
+
+  <h2>Complete source code</h2>
+  <p>The executable files are included beside this runbook. The same source is embedded below for review.</p>
+  <details><summary>fabric_tenant_settings_server.py</summary><pre><code class="python">#!/usr/bin/env python3
+&quot;&quot;&quot;Local read-only Fabric tenant-settings governance API and dashboard.&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import argparse
+import base64
+import csv
+import io
+import json
+import shutil
+import subprocess
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+import webbrowser
+from datetime import datetime, timezone
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+from generate_fabric_tenant_settings_report import as_list, build_rows
+
+FABRIC_RESOURCE = &quot;https://api.fabric.microsoft.com&quot;
+POWER_BI_RESOURCE = &quot;https://analysis.windows.net/powerbi/api&quot;
+POWER_BI_CAPACITIES_URL = &quot;https://api.powerbi.com/v1.0/myorg/admin/capacities&quot;
+SKILL_HEADER = &quot;fabriciq-ontology-cli&quot;
+
+
+class GovernanceStore:
+    def __init__(self, output_directory: Path) -&gt; None:
+        self.output_directory = output_directory
+        self.lock = threading.Lock()
+        self.data: dict[str, Any] = {
+            &quot;status&quot;: &quot;not_loaded&quot;,
+            &quot;lastRefreshedUtc&quot;: None,
+            &quot;error&quot;: None,
+            &quot;tenantId&quot;: None,
+            &quot;accountName&quot;: None,
+            &quot;tenantSettings&quot;: [],
+            &quot;capacityOverrideGroups&quot;: [],
+            &quot;capacities&quot;: [],
+            &quot;overrides&quot;: [],
+        }
+
+    @staticmethod
+    def access_token(resource: str, tenant_id: str) -&gt; tuple[str, dict[str, Any]]:
+        azure_cli = shutil.which(&quot;az&quot;) or shutil.which(&quot;az.cmd&quot;)
+        if not azure_cli:
+            raise RuntimeError(
+                &quot;Azure CLI was not found. Install it and restart the terminal.&quot;
+            )
+        result = subprocess.run(
+            [
+                azure_cli,
+                &quot;account&quot;,
+                &quot;get-access-token&quot;,
+                &quot;--resource&quot;,
+                resource,
+                &quot;--tenant&quot;,
+                tenant_id,
+                &quot;--query&quot;,
+                &quot;accessToken&quot;,
+                &quot;--output&quot;,
+                &quot;tsv&quot;,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(f&quot;Azure CLI authentication failed: {message}&quot;)
+        token = result.stdout.strip()
+        if not token:
+            raise RuntimeError(&quot;Azure CLI returned an empty access token.&quot;)
+        try:
+            payload = token.split(&quot;.&quot;)[1]
+            payload += &quot;=&quot; * (-len(payload) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload))
+        except (IndexError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError(&quot;Azure CLI returned an invalid access token.&quot;) from error
+        if claims.get(&quot;tid&quot;, &quot;&quot;).lower() != tenant_id.lower():
+            raise RuntimeError(
+                f&quot;Token tenant {claims.get(&#x27;tid&#x27;)} does not match requested tenant {tenant_id}.&quot;
+            )
+        return token, claims
+
+    @staticmethod
+    def validate_tenant_id(tenant_id: str) -&gt; str:
+        try:
+            return str(uuid.UUID(tenant_id.strip()))
+        except ValueError as error:
+            raise RuntimeError(&quot;Tenant ID must be a valid Microsoft Entra tenant GUID.&quot;) from error
+
+    @staticmethod
+    def interactive_login(tenant_id: str) -&gt; None:
+        azure_cli = shutil.which(&quot;az&quot;) or shutil.which(&quot;az.cmd&quot;)
+        if not azure_cli:
+            raise RuntimeError(
+                &quot;Azure CLI was not found. Install it and restart the terminal.&quot;
+            )
+        result = subprocess.run(
+            [
+                azure_cli,
+                &quot;login&quot;,
+                &quot;--tenant&quot;,
+                tenant_id,
+                &quot;--allow-no-subscriptions&quot;,
+                &quot;--output&quot;,
+                &quot;none&quot;,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(f&quot;Azure CLI sign-in failed: {message}&quot;)
+
+    @staticmethod
+    def request_json(url: str, token: str, fabric_request: bool = False) -&gt; dict[str, Any]:
+        headers = {&quot;Authorization&quot;: f&quot;Bearer {token}&quot;, &quot;Accept&quot;: &quot;application/json&quot;}
+        if fabric_request:
+            headers[&quot;x-ms-fabric-skill&quot;] = SKILL_HEADER
+        request = urllib.request.Request(url, headers=headers, method=&quot;GET&quot;)
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            body = error.read().decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
+            raise RuntimeError(f&quot;GET {url} failed with HTTP {error.code}: {body}&quot;) from error
+        except urllib.error.URLError as error:
+            raise RuntimeError(f&quot;GET {url} failed: {error.reason}&quot;) from error
+
+    def paged_fabric_data(self, url: str, token: str) -&gt; list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        while url:
+            response = self.request_json(url, token, fabric_request=True)
+            records.extend(as_list(response.get(&quot;value&quot;)))
+            url = str(response.get(&quot;continuationUri&quot;) or &quot;&quot;)
+        return records
+
+    def refresh(self, tenant_id: str | None = None) -&gt; dict[str, Any]:
+        with self.lock:
+            self.data[&quot;status&quot;] = &quot;refreshing&quot;
+            self.data[&quot;error&quot;] = None
+            try:
+                requested_tenant = self.validate_tenant_id(
+                    tenant_id or str(self.data.get(&quot;tenantId&quot;) or &quot;&quot;)
+                )
+                fabric_token, fabric_claims = self.access_token(
+                    FABRIC_RESOURCE, requested_tenant
+                )
+                power_bi_token, _ = self.access_token(
+                    POWER_BI_RESOURCE, requested_tenant
+                )
+                tenant_settings = self.paged_fabric_data(
+                    f&quot;{FABRIC_RESOURCE}/v1/admin/tenantsettings&quot;, fabric_token
+                )
+                override_groups = self.paged_fabric_data(
+                    f&quot;{FABRIC_RESOURCE}/v1/admin/capacities/delegatedTenantSettingOverrides&quot;,
+                    fabric_token,
+                )
+                capacities_response = self.request_json(
+                    POWER_BI_CAPACITIES_URL, power_bi_token
+                )
+                capacities = as_list(capacities_response.get(&quot;value&quot;))
+                overrides = build_rows(tenant_settings, override_groups, capacities)
+                refreshed = datetime.now(timezone.utc).isoformat()
+
+                self.output_directory.mkdir(parents=True, exist_ok=True)
+                snapshots = {
+                    &quot;tenant-settings.json&quot;: tenant_settings,
+                    &quot;capacity-overrides.json&quot;: override_groups,
+                    &quot;admin-capacities.json&quot;: capacities_response,
+                    &quot;normalized-overrides.json&quot;: overrides,
+                }
+                for name, value in snapshots.items():
+                    (self.output_directory / name).write_text(
+                        json.dumps(value, indent=2), encoding=&quot;utf-8&quot;
+                    )
+
+                self.data = {
+                    &quot;status&quot;: &quot;ready&quot;,
+                    &quot;lastRefreshedUtc&quot;: refreshed,
+                    &quot;error&quot;: None,
+                    &quot;tenantId&quot;: requested_tenant,
+                    &quot;accountName&quot;: (
+                        fabric_claims.get(&quot;preferred_username&quot;)
+                        or fabric_claims.get(&quot;upn&quot;)
+                        or fabric_claims.get(&quot;appid&quot;)
+                        or &quot;Unknown identity&quot;
+                    ),
+                    &quot;tenantSettings&quot;: tenant_settings,
+                    &quot;capacityOverrideGroups&quot;: override_groups,
+                    &quot;capacities&quot;: capacities,
+                    &quot;overrides&quot;: overrides,
+                }
+            except Exception as error:
+                self.data[&quot;status&quot;] = &quot;error&quot;
+                self.data[&quot;error&quot;] = str(error)
+            return self.summary()
+
+    def connect(self, tenant_id: str, interactive: bool) -&gt; dict[str, Any]:
+        requested_tenant = self.validate_tenant_id(tenant_id)
+        if interactive:
+            self.interactive_login(requested_tenant)
+        return self.refresh(requested_tenant)
+
+    def summary(self) -&gt; dict[str, Any]:
+        rows = self.data[&quot;overrides&quot;]
+        return {
+            &quot;status&quot;: self.data[&quot;status&quot;],
+            &quot;lastRefreshedUtc&quot;: self.data[&quot;lastRefreshedUtc&quot;],
+            &quot;error&quot;: self.data[&quot;error&quot;],
+            &quot;tenantId&quot;: self.data[&quot;tenantId&quot;],
+            &quot;accountName&quot;: self.data[&quot;accountName&quot;],
+            &quot;tenantSettings&quot;: len(self.data[&quot;tenantSettings&quot;]),
+            &quot;capacities&quot;: len(self.data[&quot;capacities&quot;]),
+            &quot;capacitiesWithOverrides&quot;: len({row[&quot;capacity_id&quot;] for row in rows}),
+            &quot;overrideRecords&quot;: len(rows),
+            &quot;enabledStateDrift&quot;: sum(row[&quot;enabled_state_differs&quot;] for row in rows),
+            &quot;securityScopeDrift&quot;: sum(row[&quot;security_scope_differs&quot;] for row in rows),
+            &quot;propertyDrift&quot;: sum(row[&quot;properties_differ&quot;] for row in rows),
+        }
+
+
+DASHBOARD_HTML = r&quot;&quot;&quot;&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+  &lt;meta charset=&quot;utf-8&quot;&gt;
+  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+  &lt;title&gt;Fabric Tenant Settings Governance&lt;/title&gt;
+  &lt;script&gt;
+    (() =&gt; {
+      const param = new URLSearchParams(window.location.search).get(&quot;clawpilotTheme&quot;);
+      const theme =
+        param || (window.matchMedia(&quot;(prefers-color-scheme: dark)&quot;).matches ? &quot;dark&quot; : &quot;light&quot;);
+      document.documentElement.setAttribute(&quot;data-theme&quot;, theme);
+    })();
+  &lt;/script&gt;
+  &lt;style&gt;
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme=&quot;dark&quot;] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--cp-bg); color: var(--cp-text);
+      font: 14px/1.45 &quot;Segoe UI&quot;, Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; }
+    main { max-width: 1500px; margin: auto; padding: 32px; }
+    header { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 30px; } h2 { margin: 30px 0 12px; }
+    .muted { color: var(--cp-text-muted); } .error { color: var(--cp-danger); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; }
+    .card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px;
+      padding: 16px; box-shadow: var(--cp-shadow); }
+    .number { font-size: 28px; font-weight: 700; color: var(--cp-accent); }
+    button,.button { border: 1px solid var(--cp-accent); border-radius: 0.625rem; padding: 9px 14px;
+      background: var(--cp-accent); color: var(--cp-accent-fg); font-weight: 600; cursor: pointer;
+      text-decoration: none; display: inline-block; }
+    button:hover,.button:hover { background: var(--cp-accent-hover); }
+    button:disabled { opacity: .6; cursor: wait; }
+    .secondary { background: var(--cp-surface); color: var(--cp-accent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .connection { display: grid; grid-template-columns: minmax(280px,1fr) auto auto; gap: 8px;
+      background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px;
+      padding: 16px; margin-bottom: 20px; box-shadow: var(--cp-shadow); }
+    label { grid-column: 1 / -1; font-weight: 600; }
+    input { width: 100%; border: 1px solid var(--cp-border-strong); border-radius: 0.625rem;
+      padding: 9px 11px; background: var(--cp-bg-elevated); color: var(--cp-text);
+      font: inherit; }
+    .session { grid-column: 1 / -1; color: var(--cp-text-muted); }
+    .finding { display: none; margin: 16px 0; padding: 14px 16px; border: 1px solid var(--cp-accent);
+      border-left: 5px solid var(--cp-danger); border-radius: 0.625rem;
+      background: var(--cp-accent-soft); }
+    .filters { display: flex; gap: 8px; margin: 12px 0; }
+    .filters button[aria-pressed=&quot;false&quot;] { background: var(--cp-surface); color: var(--cp-accent); }
+    .panel { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px;
+      overflow: auto; box-shadow: var(--cp-shadow); }
+    table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+    th,td { padding: 10px; border-bottom: 1px solid var(--cp-border); text-align: left; vertical-align: top; }
+    th { background: var(--cp-surface-soft); position: sticky; top: 0; }
+    code { font-family: Consolas, &quot;Courier New&quot;, Courier, monospace; font-size: 12px; }
+    .badge { border-radius: 0.625rem; padding: 2px 7px; font-weight: 600; background: var(--cp-surface-soft); }
+    .different { color: var(--cp-danger); background: var(--cp-accent-soft); }
+    .same { color: var(--cp-success); }
+    tr.row-drift td { background: var(--cp-accent-soft); }
+    @media (max-width: 700px) { main { padding: 20px; } header { align-items: start; flex-direction: column; }
+      .connection { grid-template-columns: 1fr; } }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;&lt;main&gt;
+  &lt;header&gt;
+    &lt;div&gt;&lt;h1&gt;Fabric Tenant Settings Governance&lt;/h1&gt;
+      &lt;div id=&quot;status&quot; class=&quot;muted&quot;&gt;Loading current configuration...&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;actions&quot;&gt;
+      &lt;button id=&quot;refresh&quot;&gt;Refresh from Microsoft APIs&lt;/button&gt;
+      &lt;a class=&quot;button secondary&quot; href=&quot;/api/export.csv&quot;&gt;Export CSV&lt;/a&gt;
+      &lt;a class=&quot;button secondary&quot; href=&quot;/api/export.json&quot;&gt;Export JSON&lt;/a&gt;
+    &lt;/div&gt;
+  &lt;/header&gt;
+  &lt;section class=&quot;connection&quot;&gt;
+    &lt;label for=&quot;tenantId&quot;&gt;Microsoft Entra tenant ID&lt;/label&gt;
+    &lt;input id=&quot;tenantId&quot; autocomplete=&quot;off&quot; inputmode=&quot;text&quot;
+      placeholder=&quot;00000000-0000-0000-0000-000000000000&quot;&gt;
+    &lt;button id=&quot;loadTenant&quot;&gt;Load using current sign-in&lt;/button&gt;
+    &lt;button id=&quot;signInTenant&quot; class=&quot;secondary&quot;&gt;Sign in &amp;amp; load&lt;/button&gt;
+    &lt;div id=&quot;session&quot; class=&quot;session&quot;&gt;Enter a tenant ID to load its Fabric administration data.&lt;/div&gt;
+  &lt;/section&gt;
+  &lt;section id=&quot;cards&quot; class=&quot;cards&quot;&gt;&lt;/section&gt;
+  &lt;section id=&quot;finding&quot; class=&quot;finding&quot;&gt;&lt;/section&gt;
+  &lt;h2&gt;Capacity tenant-setting overrides&lt;/h2&gt;
+  &lt;div class=&quot;filters&quot;&gt;
+    &lt;button id=&quot;showAll&quot; aria-pressed=&quot;true&quot;&gt;All overrides&lt;/button&gt;
+    &lt;button id=&quot;showDifferences&quot; aria-pressed=&quot;false&quot;&gt;Differences only&lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;panel&quot;&gt;&lt;table&gt;
+    &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Result&lt;/th&gt;&lt;th&gt;Capacity&lt;/th&gt;&lt;th&gt;Setting&lt;/th&gt;&lt;th&gt;Group&lt;/th&gt;&lt;th&gt;Tenant&lt;/th&gt;&lt;th&gt;Capacity&lt;/th&gt;
+      &lt;th&gt;Enabled drift&lt;/th&gt;&lt;th&gt;Security scope&lt;/th&gt;&lt;th&gt;Properties&lt;/th&gt;&lt;th&gt;Region / SKU&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+    &lt;tbody id=&quot;rows&quot;&gt;&lt;/tbody&gt;
+  &lt;/table&gt;&lt;/div&gt;
+&lt;/main&gt;
+&lt;script&gt;
+  const esc = value =&gt; String(value ?? &quot;&quot;).replace(/[&amp;&lt;&gt;&quot;&#x27;]/g, c =&gt;
+    ({&quot;&amp;&quot;:&quot;&amp;amp;&quot;,&quot;&lt;&quot;:&quot;&amp;lt;&quot;,&quot;&gt;&quot;:&quot;&amp;gt;&quot;,&quot;\&quot;&quot;:&quot;&amp;quot;&quot;,&quot;&#x27;&quot;:&quot;&amp;#39;&quot;}[c]));
+  const card = (number, label) =&gt; `&lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;${esc(number)}&lt;/div&gt;&lt;div&gt;${esc(label)}&lt;/div&gt;&lt;/div&gt;`;
+  const drift = value =&gt; `&lt;span class=&quot;badge ${value ? &quot;different&quot; : &quot;same&quot;}&quot;&gt;${value ? &quot;Different&quot; : &quot;Same&quot;}&lt;/span&gt;`;
+  let reportRows = [];
+  let differencesOnly = false;
+  const hasDrift = row =&gt; row.enabled_state_differs || row.security_scope_differs || row.properties_differ;
+  function renderRows() {
+    const rows = differencesOnly ? reportRows.filter(hasDrift) : reportRows;
+    document.getElementById(&quot;rows&quot;).innerHTML = rows.length ? rows.map(row =&gt; `&lt;tr class=&quot;${hasDrift(row) ? &quot;row-drift&quot; : &quot;&quot;}&quot;&gt;
+      &lt;td&gt;&lt;span class=&quot;badge ${hasDrift(row) ? &quot;different&quot; : &quot;same&quot;}&quot;&gt;${esc(row.classification)}&lt;/span&gt;&lt;/td&gt;
+      &lt;td&gt;${esc(row.capacity_name)}&lt;br&gt;&lt;code&gt;${esc(row.capacity_id)}&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;${esc(row.setting_title)}&lt;br&gt;&lt;code&gt;${esc(row.setting_name)}&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;${esc(row.setting_group)}&lt;/td&gt;&lt;td&gt;${esc(row.tenant_enabled)}&lt;/td&gt;&lt;td&gt;${esc(row.capacity_enabled)}&lt;/td&gt;
+      &lt;td&gt;${drift(row.enabled_state_differs)}&lt;/td&gt;&lt;td&gt;${drift(row.security_scope_differs)}&lt;/td&gt;
+      &lt;td&gt;${drift(row.properties_differ)}&lt;/td&gt;&lt;td&gt;${esc(row.region)} / ${esc(row.sku)}&lt;br&gt;${esc(row.state)}&lt;/td&gt;
+    &lt;/tr&gt;`).join(&quot;&quot;) : `&lt;tr&gt;&lt;td colspan=&quot;10&quot;&gt;No ${differencesOnly ? &quot;effective differences&quot; : &quot;capacity overrides&quot;} returned.&lt;/td&gt;&lt;/tr&gt;`;
+  }
+  async function load() {
+    const [summaryResponse, rowsResponse] = await Promise.all([fetch(&quot;/api/summary&quot;), fetch(&quot;/api/overrides&quot;)]);
+    const summary = await summaryResponse.json();
+    reportRows = await rowsResponse.json();
+    const status = document.getElementById(&quot;status&quot;);
+    status.className = summary.error ? &quot;error&quot; : &quot;muted&quot;;
+    status.textContent = summary.error || `Last refreshed: ${summary.lastRefreshedUtc || &quot;not yet&quot;}`;
+    if (summary.tenantId) document.getElementById(&quot;tenantId&quot;).value = summary.tenantId;
+    document.getElementById(&quot;session&quot;).textContent = summary.tenantId
+      ? `Tenant: ${summary.tenantId} · Signed in as: ${summary.accountName || &quot;Unknown identity&quot;}`
+      : &quot;Enter a tenant ID to load its Fabric administration data.&quot;;
+    document.getElementById(&quot;cards&quot;).innerHTML = [
+      card(summary.tenantSettings, &quot;Tenant settings&quot;),
+      card(summary.capacities, &quot;Capacities&quot;),
+      card(summary.capacitiesWithOverrides, &quot;Capacities with overrides&quot;),
+      card(summary.overrideRecords, &quot;Explicit overrides&quot;),
+      card(summary.enabledStateDrift, &quot;Enabled-state drift&quot;),
+      card(summary.securityScopeDrift + summary.propertyDrift, &quot;Scope/property drift&quot;)
+    ].join(&quot;&quot;);
+    const changed = reportRows.filter(hasDrift);
+    const finding = document.getElementById(&quot;finding&quot;);
+    if (changed.length) {
+      finding.style.display = &quot;block&quot;;
+      finding.innerHTML = `&lt;strong&gt;${changed.length} effective difference${changed.length === 1 ? &quot;&quot; : &quot;s&quot;} found.&lt;/strong&gt; ` +
+        changed.map(row =&gt; `${esc(row.setting_title)} on ${esc(row.capacity_name)}: ` +
+          `tenant &lt;strong&gt;${esc(row.tenant_enabled)}&lt;/strong&gt;, capacity &lt;strong&gt;${esc(row.capacity_enabled)}&lt;/strong&gt;`).join(&quot;; &quot;);
+    } else {
+      finding.style.display = &quot;none&quot;;
+      finding.textContent = &quot;&quot;;
+    }
+    document.getElementById(&quot;showAll&quot;).textContent = `All overrides (${reportRows.length})`;
+    document.getElementById(&quot;showDifferences&quot;).textContent = `Differences only (${changed.length})`;
+    renderRows();
+  }
+  document.getElementById(&quot;showAll&quot;).addEventListener(&quot;click&quot;, () =&gt; {
+    differencesOnly = false;
+    document.getElementById(&quot;showAll&quot;).setAttribute(&quot;aria-pressed&quot;, &quot;true&quot;);
+    document.getElementById(&quot;showDifferences&quot;).setAttribute(&quot;aria-pressed&quot;, &quot;false&quot;);
+    renderRows();
+  });
+  document.getElementById(&quot;showDifferences&quot;).addEventListener(&quot;click&quot;, () =&gt; {
+    differencesOnly = true;
+    document.getElementById(&quot;showAll&quot;).setAttribute(&quot;aria-pressed&quot;, &quot;false&quot;);
+    document.getElementById(&quot;showDifferences&quot;).setAttribute(&quot;aria-pressed&quot;, &quot;true&quot;);
+    renderRows();
+  });
+  async function connect(interactive) {
+    const tenantId = document.getElementById(&quot;tenantId&quot;).value.trim();
+    const buttons = [document.getElementById(&quot;loadTenant&quot;), document.getElementById(&quot;signInTenant&quot;)];
+    buttons.forEach(button =&gt; button.disabled = true);
+    document.getElementById(&quot;status&quot;).textContent = interactive
+      ? &quot;Waiting for Microsoft sign-in...&quot;
+      : &quot;Loading tenant data...&quot;;
+    try {
+      const response = await fetch(&quot;/api/connect&quot;, {
+        method: &quot;POST&quot;,
+        headers: {&quot;Content-Type&quot;: &quot;application/json&quot;},
+        body: JSON.stringify({tenantId, interactive})
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || &quot;Tenant connection failed.&quot;);
+      await load();
+    } catch (error) {
+      document.getElementById(&quot;status&quot;).className = &quot;error&quot;;
+      document.getElementById(&quot;status&quot;).textContent = error.message;
+    } finally {
+      buttons.forEach(button =&gt; button.disabled = false);
+    }
+  }
+  document.getElementById(&quot;loadTenant&quot;).addEventListener(&quot;click&quot;, () =&gt; connect(false));
+  document.getElementById(&quot;signInTenant&quot;).addEventListener(&quot;click&quot;, () =&gt; connect(true));
+  document.getElementById(&quot;refresh&quot;).addEventListener(&quot;click&quot;, async event =&gt; {
+    event.currentTarget.disabled = true;
+    event.currentTarget.textContent = &quot;Refreshing...&quot;;
+    try { await fetch(&quot;/api/refresh&quot;, {method:&quot;POST&quot;}); await load(); }
+    finally { event.currentTarget.disabled = false; event.currentTarget.textContent = &quot;Refresh from Microsoft APIs&quot;; }
+  });
+  load().catch(error =&gt; { document.getElementById(&quot;status&quot;).textContent = error; });
+&lt;/script&gt;
+&lt;/body&gt;&lt;/html&gt;&quot;&quot;&quot;
+
+
+class GovernanceHandler(BaseHTTPRequestHandler):
+    store: GovernanceStore
+
+    def log_message(self, format_string: str, *args: Any) -&gt; None:
+        print(f&quot;{self.address_string()} - {format_string % args}&quot;)
+
+    def send_bytes(self, body: bytes, content_type: str, status: HTTPStatus = HTTPStatus.OK) -&gt; None:
+        self.send_response(status)
+        self.send_header(&quot;Content-Type&quot;, content_type)
+        self.send_header(&quot;Content-Length&quot;, str(len(body)))
+        self.send_header(&quot;Cache-Control&quot;, &quot;no-store&quot;)
+        self.send_header(&quot;X-Content-Type-Options&quot;, &quot;nosniff&quot;)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_json(self, value: Any, status: HTTPStatus = HTTPStatus.OK) -&gt; None:
+        self.send_bytes(
+            json.dumps(value, indent=2).encode(&quot;utf-8&quot;),
+            &quot;application/json; charset=utf-8&quot;,
+            status,
+        )
+
+    def do_GET(self) -&gt; None:
+        path = urllib.parse.urlparse(self.path).path
+        if path == &quot;/&quot;:
+            self.send_bytes(DASHBOARD_HTML.encode(&quot;utf-8&quot;), &quot;text/html; charset=utf-8&quot;)
+        elif path == &quot;/health&quot;:
+            self.send_json({&quot;status&quot;: &quot;ok&quot;, &quot;dataStatus&quot;: self.store.data[&quot;status&quot;]})
+        elif path == &quot;/api/summary&quot;:
+            self.send_json(self.store.summary())
+        elif path == &quot;/api/capacities&quot;:
+            self.send_json(self.store.data[&quot;capacities&quot;])
+        elif path == &quot;/api/overrides&quot;:
+            self.send_json(self.store.data[&quot;overrides&quot;])
+        elif path == &quot;/api/settings&quot;:
+            self.send_json(self.store.data[&quot;tenantSettings&quot;])
+        elif path == &quot;/api/export.json&quot;:
+            self.send_json(
+                {&quot;summary&quot;: self.store.summary(), &quot;overrides&quot;: self.store.data[&quot;overrides&quot;]}
+            )
+        elif path == &quot;/api/export.csv&quot;:
+            rows = self.store.data[&quot;overrides&quot;]
+            output = io.StringIO()
+            if rows:
+                writer = csv.DictWriter(output, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            self.send_bytes(
+                output.getvalue().encode(&quot;utf-8-sig&quot;),
+                &quot;text/csv; charset=utf-8&quot;,
+            )
+        else:
+            self.send_json({&quot;error&quot;: &quot;Not found&quot;}, HTTPStatus.NOT_FOUND)
+
+    def do_POST(self) -&gt; None:
+        path = urllib.parse.urlparse(self.path).path
+        try:
+            if path == &quot;/api/connect&quot;:
+                length = int(self.headers.get(&quot;Content-Length&quot;, &quot;0&quot;))
+                if length &gt; 4096:
+                    self.send_json(
+                        {&quot;error&quot;: &quot;Request body is too large.&quot;},
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    return
+                body = json.loads(self.rfile.read(length) or b&quot;{}&quot;)
+                summary = self.store.connect(
+                    str(body.get(&quot;tenantId&quot;) or &quot;&quot;),
+                    bool(body.get(&quot;interactive&quot;)),
+                )
+                status = (
+                    HTTPStatus.OK
+                    if summary[&quot;status&quot;] == &quot;ready&quot;
+                    else HTTPStatus.BAD_GATEWAY
+                )
+                self.send_json(summary, status)
+            elif path == &quot;/api/refresh&quot;:
+                summary = self.store.refresh()
+                status = (
+                    HTTPStatus.OK
+                    if summary[&quot;status&quot;] == &quot;ready&quot;
+                    else HTTPStatus.BAD_GATEWAY
+                )
+                self.send_json(summary, status)
+            else:
+                self.send_json({&quot;error&quot;: &quot;Not found&quot;}, HTTPStatus.NOT_FOUND)
+        except (RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+            self.send_json({&quot;error&quot;: str(error)}, HTTPStatus.BAD_REQUEST)
+
+
+def main() -&gt; None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(&quot;--host&quot;, default=&quot;127.0.0.1&quot;)
+    parser.add_argument(&quot;--port&quot;, type=int, default=8000)
+    parser.add_argument(&quot;--output-directory&quot;, type=Path, default=Path(__file__).parent / &quot;output&quot;)
+    parser.add_argument(&quot;--tenant-id&quot;)
+    parser.add_argument(&quot;--no-browser&quot;, action=&quot;store_true&quot;)
+    args = parser.parse_args()
+
+    if args.host not in {&quot;127.0.0.1&quot;, &quot;localhost&quot;}:
+        raise SystemExit(&quot;For safety, this application only binds to localhost.&quot;)
+
+    store = GovernanceStore(args.output_directory)
+    GovernanceHandler.store = store
+    if args.tenant_id:
+        store.refresh(args.tenant_id)
+    server = ThreadingHTTPServer((args.host, args.port), GovernanceHandler)
+    url = f&quot;http://{args.host}:{args.port}&quot;
+    print(f&quot;Fabric governance report running at {url}&quot;)
+    if not args.no_browser:
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print(&quot;\nStopping local server.&quot;)
+    finally:
+        server.server_close()
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></details>
+  <details><summary>collect_fabric_tenant_settings_report.ps1</summary><pre><code class="powershell">param(
+    [string]$OutputDirectory = &quot;&quot;,
+    [string]$FocusCapacityId = &quot;&quot;
+)
+
+$ErrorActionPreference = &quot;Stop&quot;
+$fabricResource = &quot;https://api.fabric.microsoft.com&quot;
+$powerBiResource = &quot;https://analysis.windows.net/powerbi/api&quot;
+$skillHeader = &quot;x-ms-fabric-skill=fabriciq-ontology-cli&quot;
+
+if (-not $OutputDirectory) {
+    $OutputDirectory = Join-Path $PSScriptRoot &quot;output&quot;
+}
+
+if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+    throw &quot;Azure CLI is required. Install it from https://aka.ms/installazurecliwindows.&quot;
+}
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    throw &quot;Python 3 is required to generate the HTML and CSV files.&quot;
+}
+
+function Get-PagedFabricData {
+    param([Parameter(Mandatory = $true)][string]$Url)
+
+    $records = @()
+    do {
+        $responseJson = az rest `
+            --method get `
+            --resource $fabricResource `
+            --url $Url `
+            --headers $skillHeader `
+            --output json
+        if ($LASTEXITCODE -ne 0) {
+            throw &quot;Fabric API request failed: $Url&quot;
+        }
+
+        $response = $responseJson | ConvertFrom-Json
+        $records += @($response.value)
+        $Url = $response.continuationUri
+    } while ($Url)
+
+    return $records
+}
+
+New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+$resolvedOutputDirectory = (Resolve-Path $OutputDirectory).Path
+
+$tenantSettings = Get-PagedFabricData `
+    &quot;$fabricResource/v1/admin/tenantsettings&quot;
+$capacityOverrides = Get-PagedFabricData `
+    &quot;$fabricResource/v1/admin/capacities/delegatedTenantSettingOverrides&quot;
+
+$adminCapacitiesJson = az rest `
+    --method get `
+    --resource $powerBiResource `
+    --url &quot;https://api.powerbi.com/v1.0/myorg/admin/capacities&quot; `
+    --output json
+if ($LASTEXITCODE -ne 0) {
+    throw &quot;Power BI admin capacity inventory request failed.&quot;
+}
+
+[IO.File]::WriteAllText(
+    (Join-Path $resolvedOutputDirectory &quot;tenant-settings.json&quot;),
+    ($tenantSettings | ConvertTo-Json -Depth 30),
+    [Text.UTF8Encoding]::new($false)
+)
+[IO.File]::WriteAllText(
+    (Join-Path $resolvedOutputDirectory &quot;capacity-overrides.json&quot;),
+    ($capacityOverrides | ConvertTo-Json -Depth 30),
+    [Text.UTF8Encoding]::new($false)
+)
+[IO.File]::WriteAllText(
+    (Join-Path $resolvedOutputDirectory &quot;admin-capacities.json&quot;),
+    $adminCapacitiesJson,
+    [Text.UTF8Encoding]::new($false)
+)
+
+$generator = Join-Path $PSScriptRoot &quot;generate_fabric_tenant_settings_report.py&quot;
+$arguments = @($generator, $resolvedOutputDirectory)
+if ($FocusCapacityId) {
+    $arguments += @(&quot;--focus-capacity-id&quot;, $FocusCapacityId)
+}
+
+python @arguments
+if ($LASTEXITCODE -ne 0) {
+    throw &quot;Report generation failed.&quot;
+}
+
+Write-Host &quot;Report: $(Join-Path $resolvedOutputDirectory &#x27;fabric-capacity-tenant-setting-overrides.html&#x27;)&quot;
+Write-Host &quot;CSV:    $(Join-Path $resolvedOutputDirectory &#x27;fabric-capacity-tenant-setting-overrides.csv&#x27;)&quot;
+</code></pre></details>
+  <details><summary>generate_fabric_tenant_settings_report.py</summary><pre><code class="python">#!/usr/bin/env python3
+&quot;&quot;&quot;Generate an HTML and CSV report from Fabric tenant-setting API snapshots.&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import argparse
+import csv
+import html
+import json
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+def load_json(path: Path) -&gt; Any:
+    with path.open(encoding=&quot;utf-8-sig&quot;) as handle:
+        return json.load(handle)
+
+
+def as_list(value: Any) -&gt; list[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def canonical(value: Any) -&gt; str:
+    return json.dumps(value if value is not None else [], sort_keys=True, separators=(&quot;,&quot;, &quot;:&quot;))
+
+
+def status_text(value: Any) -&gt; str:
+    if value is True:
+        return &quot;Enabled&quot;
+    if value is False:
+        return &quot;Disabled&quot;
+    return &quot;Not specified&quot;
+
+
+def group_names(setting: dict[str, Any], key: str) -&gt; str:
+    groups = as_list(setting.get(key))
+    return &quot;; &quot;.join(
+        str(group.get(&quot;name&quot;) or group.get(&quot;graphId&quot;) or &quot;&quot;)
+        for group in groups
+        if isinstance(group, dict)
+    )
+
+
+def property_text(setting: dict[str, Any]) -&gt; str:
+    return &quot;; &quot;.join(
+        f&quot;{item.get(&#x27;name&#x27;)}={item.get(&#x27;value&#x27;)}&quot;
+        for item in as_list(setting.get(&quot;properties&quot;))
+        if isinstance(item, dict)
+    )
+
+
+def build_rows(
+    tenant_settings: list[dict[str, Any]],
+    capacity_overrides: list[dict[str, Any]],
+    capacities: list[dict[str, Any]],
+) -&gt; list[dict[str, Any]]:
+    tenant_by_name = {item[&quot;settingName&quot;]: item for item in tenant_settings}
+    capacity_by_id = {item[&quot;id&quot;]: item for item in capacities}
+    rows: list[dict[str, Any]] = []
+
+    for override_group in capacity_overrides:
+        capacity_id = override_group[&quot;id&quot;]
+        capacity = capacity_by_id.get(capacity_id, {})
+        for capacity_setting in as_list(override_group.get(&quot;tenantSettings&quot;)):
+            setting_name = capacity_setting[&quot;settingName&quot;]
+            tenant_setting = tenant_by_name.get(setting_name, {})
+            enabled_differs = tenant_setting.get(&quot;enabled&quot;) != capacity_setting.get(&quot;enabled&quot;)
+            security_scope_differs = any(
+                canonical(tenant_setting.get(key)) != canonical(capacity_setting.get(key))
+                for key in (&quot;enabledSecurityGroups&quot;, &quot;excludedSecurityGroups&quot;)
+            )
+            properties_differ = canonical(tenant_setting.get(&quot;properties&quot;)) != canonical(
+                capacity_setting.get(&quot;properties&quot;)
+            )
+            has_effective_drift = (
+                enabled_differs or security_scope_differs or properties_differ
+            )
+            rows.append(
+                {
+                    &quot;capacity_name&quot;: capacity.get(&quot;displayName&quot;, &quot;Unknown capacity&quot;),
+                    &quot;capacity_id&quot;: capacity_id,
+                    &quot;sku&quot;: capacity.get(&quot;sku&quot;, &quot;&quot;),
+                    &quot;state&quot;: capacity.get(&quot;state&quot;, &quot;&quot;),
+                    &quot;region&quot;: capacity.get(&quot;region&quot;, &quot;&quot;),
+                    &quot;setting_group&quot;: capacity_setting.get(&quot;tenantSettingGroup&quot;, &quot;&quot;),
+                    &quot;setting_title&quot;: capacity_setting.get(&quot;title&quot;, &quot;&quot;),
+                    &quot;setting_name&quot;: setting_name,
+                    &quot;tenant_enabled&quot;: status_text(tenant_setting.get(&quot;enabled&quot;)),
+                    &quot;capacity_enabled&quot;: status_text(capacity_setting.get(&quot;enabled&quot;)),
+                    &quot;classification&quot;: (
+                        &quot;Effective drift&quot;
+                        if has_effective_drift
+                        else &quot;Explicit override matches tenant&quot;
+                    ),
+                    &quot;enabled_state_differs&quot;: enabled_differs,
+                    &quot;tenant_enabled_groups&quot;: group_names(tenant_setting, &quot;enabledSecurityGroups&quot;),
+                    &quot;capacity_enabled_groups&quot;: group_names(
+                        capacity_setting, &quot;enabledSecurityGroups&quot;
+                    ),
+                    &quot;tenant_excluded_groups&quot;: group_names(tenant_setting, &quot;excludedSecurityGroups&quot;),
+                    &quot;capacity_excluded_groups&quot;: group_names(
+                        capacity_setting, &quot;excludedSecurityGroups&quot;
+                    ),
+                    &quot;security_scope_differs&quot;: security_scope_differs,
+                    &quot;tenant_properties&quot;: property_text(tenant_setting),
+                    &quot;capacity_properties&quot;: property_text(capacity_setting),
+                    &quot;properties_differ&quot;: properties_differ,
+                    &quot;delegate_to_workspace&quot;: status_text(
+                        capacity_setting.get(&quot;delegateToWorkspace&quot;)
+                    ),
+                    &quot;delegated_from&quot;: capacity_setting.get(&quot;delegatedFrom&quot;, &quot;&quot;),
+                }
+            )
+    return sorted(rows, key=lambda row: (row[&quot;capacity_name&quot;], row[&quot;setting_group&quot;], row[&quot;setting_title&quot;]))
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]]) -&gt; None:
+    with path.open(&quot;w&quot;, newline=&quot;&quot;, encoding=&quot;utf-8-sig&quot;) as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else [])
+        if rows:
+            writer.writeheader()
+            writer.writerows(rows)
+
+
+def badge(value: bool, true_text: str, false_text: str) -&gt; str:
+    css_class = &quot;danger&quot; if value else &quot;ok&quot;
+    text = true_text if value else false_text
+    return f&#x27;&lt;span class=&quot;badge {css_class}&quot;&gt;{html.escape(text)}&lt;/span&gt;&#x27;
+
+
+def write_html(
+    path: Path,
+    rows: list[dict[str, Any]],
+    tenant_settings: list[dict[str, Any]],
+    capacities: list[dict[str, Any]],
+    focus_capacity_id: str | None,
+) -&gt; None:
+    generated_at = datetime.now(timezone.utc).strftime(&quot;%Y-%m-%d %H:%M:%S UTC&quot;)
+    capacities_with_overrides = {row[&quot;capacity_id&quot;] for row in rows}
+    drift_rows = [
+        row
+        for row in rows
+        if row[&quot;enabled_state_differs&quot;]
+        or row[&quot;security_scope_differs&quot;]
+        or row[&quot;properties_differ&quot;]
+    ]
+    same_state_rows = [row for row in rows if not row[&quot;enabled_state_differs&quot;]]
+    focus_capacity = next(
+        (item for item in capacities if item.get(&quot;id&quot;) == focus_capacity_id), None
+    )
+    focus_override_count = sum(row[&quot;capacity_id&quot;] == focus_capacity_id for row in rows)
+    counts = Counter(row[&quot;capacity_id&quot;] for row in rows)
+
+    capacity_table = &quot;&quot;.join(
+        f&quot;&quot;&quot;
+        &lt;tr&gt;
+          &lt;td&gt;{html.escape(str(item.get(&quot;displayName&quot;, &quot;&quot;)))}&lt;/td&gt;
+          &lt;td&gt;&lt;code&gt;{html.escape(str(item.get(&quot;id&quot;, &quot;&quot;)))}&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(item.get(&quot;sku&quot;, &quot;&quot;)))}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(item.get(&quot;state&quot;, &quot;&quot;)))}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(item.get(&quot;region&quot;, &quot;&quot;)))}&lt;/td&gt;
+          &lt;td&gt;{counts.get(item.get(&quot;id&quot;), 0)}&lt;/td&gt;
+        &lt;/tr&gt;&quot;&quot;&quot;
+        for item in sorted(capacities, key=lambda item: str(item.get(&quot;displayName&quot;, &quot;&quot;)))
+    )
+
+    detail_table = &quot;&quot;.join(
+        f&quot;&quot;&quot;
+        &lt;tr class=&quot;{&quot;row-drift&quot; if row[&quot;classification&quot;] == &quot;Effective drift&quot; else &quot;&quot;}&quot;&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;classification&quot;]))}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;capacity_name&quot;]))}&lt;br&gt;&lt;code&gt;{html.escape(str(row[&quot;capacity_id&quot;]))}&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;setting_group&quot;]))}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;setting_title&quot;]))}&lt;br&gt;&lt;code&gt;{html.escape(str(row[&quot;setting_name&quot;]))}&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;tenant_enabled&quot;]))}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;capacity_enabled&quot;]))}&lt;/td&gt;
+          &lt;td&gt;{badge(bool(row[&quot;enabled_state_differs&quot;]), &quot;Different&quot;, &quot;Same&quot;)}&lt;/td&gt;
+          &lt;td&gt;{badge(bool(row[&quot;security_scope_differs&quot;]), &quot;Different&quot;, &quot;Same&quot;)}&lt;/td&gt;
+          &lt;td&gt;{badge(bool(row[&quot;properties_differ&quot;]), &quot;Different&quot;, &quot;Same&quot;)}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;delegate_to_workspace&quot;]))}&lt;/td&gt;
+          &lt;td&gt;{html.escape(str(row[&quot;delegated_from&quot;]))}&lt;/td&gt;
+        &lt;/tr&gt;&quot;&quot;&quot;
+        for row in rows
+    )
+
+    focus_html = &quot;&quot;
+    if focus_capacity:
+        focus_html = f&quot;&quot;&quot;
+        &lt;section class=&quot;callout&quot;&gt;
+          &lt;h2&gt;Current demo workspace capacity&lt;/h2&gt;
+          &lt;p&gt;&lt;strong&gt;{html.escape(str(focus_capacity.get(&quot;displayName&quot;, &quot;&quot;)))}&lt;/strong&gt;
+          ({html.escape(str(focus_capacity.get(&quot;sku&quot;, &quot;&quot;)))},
+          {html.escape(str(focus_capacity.get(&quot;region&quot;, &quot;&quot;)))}) has
+          &lt;strong&gt;{focus_override_count}&lt;/strong&gt; capacity-level override records.&lt;/p&gt;
+        &lt;/section&gt;&quot;&quot;&quot;
+
+    document = f&quot;&quot;&quot;&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+  &lt;meta charset=&quot;utf-8&quot;&gt;
+  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+  &lt;title&gt;Fabric capacity tenant-setting override report&lt;/title&gt;
+  &lt;script&gt;
+    (() =&gt; {{
+      const param = new URLSearchParams(window.location.search).get(&quot;clawpilotTheme&quot;);
+      const theme =
+        param || (window.matchMedia(&quot;(prefers-color-scheme: dark)&quot;).matches ? &quot;dark&quot; : &quot;light&quot;);
+      document.documentElement.setAttribute(&quot;data-theme&quot;, theme);
+    }})();
+  &lt;/script&gt;
+  &lt;style&gt;
+    :root {{
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }}
+    html[data-theme=&quot;dark&quot;] {{
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }}
+    body {{ font:14px/1.45 &quot;Segoe UI&quot;,Aptos,Calibri,-apple-system,BlinkMacSystemFont,sans-serif;
+      color:var(--cp-text); margin:0; background:var(--cp-bg); }}
+    main {{ max-width:1500px; margin:auto; padding:32px; }}
+    h1 {{ margin-bottom:4px; }} h2 {{ margin-top:30px; }}
+    .muted {{ color:var(--cp-text-muted); }}
+    .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; margin:24px 0; }}
+    .card,.callout {{ border:1px solid var(--cp-border); border-radius:16px; padding:18px;
+      background:var(--cp-surface); box-shadow:var(--cp-shadow); }}
+    .number {{ font-size:30px; font-weight:700; color:var(--cp-accent); }}
+    .callout {{ border-left:5px solid var(--cp-accent); }}
+    .warning {{ border-left-color:var(--cp-warning); }}
+    table {{ width:100%; border-collapse:collapse; margin:12px 0 26px; }}
+    th,td {{ border:1px solid var(--cp-border); padding:9px; text-align:left; vertical-align:top; }}
+    th {{ background:var(--cp-surface-soft); position:sticky; top:0; }}
+    code {{ font-family:Consolas,&quot;Courier New&quot;,Courier,monospace; font-size:12px; overflow-wrap:anywhere; }}
+    .badge {{ display:inline-block; border-radius:0.625rem; padding:2px 8px; font-weight:600; }}
+    .danger {{ color:var(--cp-danger); background:var(--cp-accent-soft); }}
+    .ok {{ color:var(--cp-success); background:var(--cp-surface-soft); }}
+    tr.row-drift td {{ background:var(--cp-accent-soft); }}
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;&lt;main&gt;
+  &lt;h1&gt;Fabric capacity tenant-setting override report&lt;/h1&gt;
+  &lt;p class=&quot;muted&quot;&gt;Read-only configuration snapshot generated {generated_at}&lt;/p&gt;
+  &lt;div class=&quot;cards&quot;&gt;
+    &lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;{len(tenant_settings)}&lt;/div&gt;&lt;div&gt;Tenant settings inspected&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;{len(capacities)}&lt;/div&gt;&lt;div&gt;Tenant capacities inventoried&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;{len(capacities_with_overrides)}&lt;/div&gt;&lt;div&gt;Capacities with explicit overrides&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;{len(rows)}&lt;/div&gt;&lt;div&gt;Explicit override records&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;{len(drift_rows)}&lt;/div&gt;&lt;div&gt;Overrides with effective drift&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;card&quot;&gt;&lt;div class=&quot;number&quot;&gt;{len(same_state_rows)}&lt;/div&gt;&lt;div&gt;Overrides matching tenant enabled state&lt;/div&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;section class=&quot;callout&quot;&gt;
+    &lt;h2&gt;Conclusion&lt;/h2&gt;
+    &lt;p&gt;&lt;strong&gt;Yes.&lt;/strong&gt; The API reports capacity-level overrides. An override record means
+    the capacity is no longer merely inheriting that setting. Only records marked
+    &lt;em&gt;Different&lt;/em&gt; currently produce observable value or scope drift from the tenant snapshot.&lt;/p&gt;
+  &lt;/section&gt;
+  {focus_html}
+  &lt;h2&gt;Capacity inventory&lt;/h2&gt;
+  &lt;table&gt;
+    &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Capacity&lt;/th&gt;&lt;th&gt;ID&lt;/th&gt;&lt;th&gt;SKU&lt;/th&gt;&lt;th&gt;State&lt;/th&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Override records&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+    &lt;tbody&gt;{capacity_table}&lt;/tbody&gt;
+  &lt;/table&gt;
+  &lt;h2&gt;Override details&lt;/h2&gt;
+  &lt;table&gt;
+    &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Result&lt;/th&gt;&lt;th&gt;Capacity&lt;/th&gt;&lt;th&gt;Group&lt;/th&gt;&lt;th&gt;Setting&lt;/th&gt;&lt;th&gt;Tenant&lt;/th&gt;&lt;th&gt;Capacity&lt;/th&gt;
+      &lt;th&gt;Enabled drift&lt;/th&gt;&lt;th&gt;Security scope&lt;/th&gt;&lt;th&gt;Properties&lt;/th&gt;
+      &lt;th&gt;Workspace delegation&lt;/th&gt;&lt;th&gt;Delegated from&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+    &lt;tbody&gt;{detail_table}&lt;/tbody&gt;
+  &lt;/table&gt;
+  &lt;section class=&quot;callout warning&quot;&gt;
+    &lt;h2&gt;Interpretation and audit limitation&lt;/h2&gt;
+    &lt;ul&gt;
+      &lt;li&gt;This report used read-only APIs and did not call either tenant or capacity update endpoints.&lt;/li&gt;
+      &lt;li&gt;The override inventory proves that a capacity-level override exists; it does not identify the person who changed it or the change time.&lt;/li&gt;
+      &lt;li&gt;Use Microsoft Purview audit events such as &lt;code&gt;UpdateCapacityTenantSettingDelegation&lt;/code&gt;
+      for actor and timestamp attribution.&lt;/li&gt;
+      &lt;li&gt;A same-state override can become future drift if the tenant default changes while the capacity retains its explicit value.&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/section&gt;
+&lt;/main&gt;&lt;/body&gt;&lt;/html&gt;&quot;&quot;&quot;
+    path.write_text(document, encoding=&quot;utf-8&quot;)
+
+
+def main() -&gt; None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(&quot;snapshot_directory&quot;, type=Path)
+    parser.add_argument(&quot;--focus-capacity-id&quot;)
+    args = parser.parse_args()
+
+    directory = args.snapshot_directory
+    tenant_settings = as_list(load_json(directory / &quot;tenant-settings.json&quot;))
+    capacity_overrides = as_list(load_json(directory / &quot;capacity-overrides.json&quot;))
+    capacities_response = load_json(directory / &quot;admin-capacities.json&quot;)
+    capacities = as_list(
+        capacities_response.get(&quot;value&quot;)
+        if isinstance(capacities_response, dict)
+        else capacities_response
+    )
+
+    rows = build_rows(tenant_settings, capacity_overrides, capacities)
+    write_csv(directory / &quot;fabric-capacity-tenant-setting-overrides.csv&quot;, rows)
+    write_html(
+        directory / &quot;fabric-capacity-tenant-setting-overrides.html&quot;,
+        rows,
+        tenant_settings,
+        capacities,
+        args.focus_capacity_id,
+    )
+    print(
+        json.dumps(
+            {
+                &quot;tenantSettings&quot;: len(tenant_settings),
+                &quot;capacities&quot;: len(capacities),
+                &quot;capacitiesWithOverrides&quot;: len({row[&quot;capacity_id&quot;] for row in rows}),
+                &quot;overrideRecords&quot;: len(rows),
+                &quot;enabledStateDrift&quot;: sum(row[&quot;enabled_state_differs&quot;] for row in rows),
+                &quot;securityScopeDrift&quot;: sum(row[&quot;security_scope_differs&quot;] for row in rows),
+                &quot;propertyDrift&quot;: sum(row[&quot;properties_differ&quot;] for row in rows),
+            },
+            indent=2,
+        )
+    )
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></details>
+
+  <h2>Official references</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/rest/api/fabric/admin/tenants/list-capacities-tenant-settings-overrides">List capacities tenant-setting overrides</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/delegate-settings">Delegate tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/rest/api/power-bi/admin/get-capacities-as-admin">Get capacities as admin</a></li>
+  </ul>
+
+  <section class="callout note">
+    <strong>Safety:</strong> all collection calls in this package use HTTP GET. Review the scripts
+    before execution and retain the raw JSON snapshots with the report for audit traceability.
+  </section>
+</main></body></html>
